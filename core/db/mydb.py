@@ -7,6 +7,14 @@ import threading
 import logging
 
 
+class DBError(Exception):
+    pass
+
+
+class MultiColumnsError(DBError):
+    pass
+
+
 class Dict(dict):
     '''
     Simple dict but support access by x.y style
@@ -47,6 +55,99 @@ def next_id(t=None):
     return '%015d%s000' % (int(t * 1000), uuid.uuid4().hex)
 
 
+def _profiling(start, sql=''):
+    t = time.time() - start
+    if t > 0.1:
+        logging.warning('[PROFILING] [DB] %s: %s' % (t, sql))
+    else:
+        logging.info('[PROFILING] [DB] %s: %s' % (t, sql))
+
+
+class _LazyConnection(object):
+    def __init__(self):
+        self.connection = None
+
+    def cursor(self):
+        if self.connection is None:
+            connection = engine.connect()
+            logging.info('open connection <%s>...' % hex(id(connection)))
+            self.connection = connection
+        return self.connection.cursor()
+
+    def commit(self):
+        self.connection.commit()
+
+    def rollback(self):
+        self.connection.rollback()
+
+    def cleanup(self):
+        if self.connection:
+            connection = self.connection
+            self.connection = None
+            logging.info('close connection <%s>...' % hex(id(connection)))
+            connection.close()
+
+
+class _DbCtx(threading.local):
+    '''
+    Thread local object that holds connection info
+    '''
+    def __init__(self):
+        self.connection = None
+        self.transactions = 0
+
+    def is_init(self):
+        return not self.connection is None
+
+    def init(self):
+        logging.info('open lazy connection...')
+        self.connection = _LazyConnection()
+        self.transactions = 0
+
+    def cleanup(self):
+        self.connection.cleanup()
+        self.connection = None
+
+    def cursor(self):
+        return self.connection.cursor()
+
+#thread-local db context
+_db_ctx = _DbCtx()
+
+#global engine object
+engine = None
+
+
+class _Engine(object):
+    def __init__(self, connect):
+        self._connect = connect
+
+    def connect(self):
+        return self._connect()
+
+
+def mysql_engine(user, password, database, host='127.0.0.1', port=3306, **kwargs):
+    import MySQLdb
+    params = dict(user=user, passwd=password, db=database, host=host, port=port)
+    defaults = dict(use_unicode=True, charset='utf8', connect_timeout=10)
+    for k, v in defaults.iteritems():
+        params[k] = kwargs.pop(k, v)
+    params.update(kwargs)
+    return lambda: MySQLdb.connect(**params)
+
+
+def create_engine(detail_engine, user, password, database, host='127.0.0.1', port=3306, **kwargs):
+    global engine
+    if engine is not None:
+        raise DBError('Engine is already initialized.')
+    connector = detail_engine(user, password, database, host, port, **kwargs)
+    engine = _Engine(connector)
+    logging.info('Init mysql engine <%s> ok.' % hex(id(engine)))
+
+
 if __name__ == '__main__':
-    import doctest
-    doctest.testmod()
+    #import doctest
+    #doctest.testmod()
+    create_engine(mysql_engine, 'root', '123456', 'frame-test')
+    conn = engine.connect()
+    cursor = conn.cursor()
