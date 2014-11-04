@@ -1,0 +1,11 @@
+*.usr.cfg
+*.pyc
+*.settings
+*.pyo
+*.egg-info
+*.tmp
+.svn
+*.pth
+*.log
+*.bak
+
