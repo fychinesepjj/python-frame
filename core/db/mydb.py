@@ -126,6 +126,53 @@ class _Engine(object):
         return self._connect()
 
 
+class _ConnectionCtx(object):
+    '''
+    _ConnectionCtx object than can open and close connection context.
+    _ConnectionCtx object can be nested and only the most outer connection has effect
+    with connection():
+        pass
+        with connection():
+            pass
+    '''
+    def __enter__(self):
+        global _db_ctx
+        self.should_cleanup = False
+        if not _db_ctx.is_init():
+            _db_ctx.init()
+            self.should_cleanup = True
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        global _db_ctx
+        if self.should_cleanup:
+            _db_ctx.cleanup()
+
+
+def connection():
+    '''
+    Return _ConnectionCtx object that can be used by 'with' statement
+    with connection():
+        pass
+    '''
+    return _ConnectionCtx()
+
+
+def with_connection(func):
+    '''
+    Decorator for reuse connection
+    @with_connection
+    def foo(*args, **kwargs):
+        f1()
+        f2()
+    '''
+    @functools.wraps(func)
+    def _wrapper(*args, **kwargs):
+        with _ConnectionCtx():
+            return func(*args, **kwargs)
+    return _wrapper
+
+
 def mysql_engine(user, password, database, host='127.0.0.1', port=3306, **kwargs):
     import MySQLdb
     params = dict(user=user, passwd=password, db=database, host=host, port=port)
