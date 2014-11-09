@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import time
 import logging
 import db
 
@@ -49,7 +48,7 @@ class IntegerField(Field):
         if not 'default' in kwargs:
             kwargs['default'] = 0
         if not 'ddl' in kwargs:
-            kwargs['ddl'] = 'int'
+            kwargs['ddl'] = 'bigint'
         super(IntegerField, self).__init__(**kwargs)
 
 
@@ -139,17 +138,17 @@ class ModelMetaClass(type):
                         if primary_key:
                             raise TypeError('Cannot define more than 1 primary key in class: %s' % name)
                         if v.updatable:
-                            logging.warning('NOTE: change primary key to non-updatable.')
+                            logging.warning('NOTE: change primary key <%s> to non-updatable.' % k)
                             v.updatable = False
                         if v.nullable:
-                            logging.warning('NOTE: change primary key to non-nullable.')
+                            logging.warning('NOTE: change primary key <%s> to non-nullable.' % k)
                             v.nullable = False
                         primary_key = v
                     mapping[k] = v
         #check exist of primary key
         if not primary_key:
             raise TypeError('Primary key not defined in class: %s' % name)
-        for k in mapping.iteritems():
+        for k in mapping.iterkeys():
             attrs.pop(k)
 
         if not '__table__' in attrs:

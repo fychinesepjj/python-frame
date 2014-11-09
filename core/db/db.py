@@ -1,10 +1,10 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import time
 import uuid
 import functools
 import threading
 import logging
+from utils import Dict
 
 
 class DBError(Exception):
@@ -17,34 +17,6 @@ class MultiColumnsError(DBError):
 
 class ColumnTypeError(DBError):
     pass
-
-
-class Dict(dict):
-    '''
-    Simple dict but support access by x.y style
-    >>> d1 = Dict()
-    >>> d1['x'] = 100
-    >>> d1.x
-    100
-    >>> d2 = Dict(a=1, b=2, c=3)
-    >>> d2.c
-    3
-    >>> d2['empty']
-    Traceback (most recent call last):
-        ...
-    KeyError: 'empty'
-    '''
-
-    def __init__(self, names=(), values=(), **kwargs):
-        super(Dict, self).__init__(**kwargs)
-        for k, v in zip(names, values):
-            self[k] = v
-
-    def __getattr__(self, key):
-        try:
-            return self[key]
-        except KeyError:
-            raise AttributeError(r"Dict object has no attribute '%s'" % key)
 
 
 def next_id(t=None):
@@ -327,10 +299,21 @@ def mysql_engine(user, password, database, host='127.0.0.1', port=3306, **kwargs
     return lambda: MySQLdb.connect(**params)
 
 
-def create_engine(detail_engine, user, password, database, host='127.0.0.1', port=3306, **kwargs):
+def select_engine(name='mysql'):
+    mapping = {
+        'mysql': mysql_engine,
+    }
+    if name in mapping:
+        return mapping[name]
+
+
+def create_engine(engine_name, user, password, database, host='127.0.0.1', port=3306, **kwargs):
     global engine
     if engine is not None:
         raise DBError('Engine is already initialized.')
+    detail_engine = select_engine(engine_name)
+    if detail_engine is None:
+        raise DBError('Engine is not supported, %s' % engine_name)
     connector = detail_engine(user, password, database, host, port, **kwargs)
     engine = _Engine(connector)
     logging.info('Init mysql engine <%s> ok.' % hex(id(engine)))
@@ -339,5 +322,5 @@ def create_engine(detail_engine, user, password, database, host='127.0.0.1', por
 if __name__ == '__main__':
     #import doctest
     #doctest.testmod()
-    create_engine(mysql_engine, 'root', '123456', 'frame-test')
+    create_engine('mysql', 'root', '123456', 'frame-test')
     print select_int('select name from test')
