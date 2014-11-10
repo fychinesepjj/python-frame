@@ -154,6 +154,7 @@ _RESPONSE_HEADER_DICT = dict(zip(map(lambda x: x.upper(), _RESPONSE_HEADERS), _R
 
 _HEADER_X_POWERED_BY = ('X-Powered-By', 'study/1.0')
 
+
 class HttpError(Exception):
     def __init__(self, code):
         '''
@@ -175,6 +176,222 @@ class HttpError(Exception):
 
     def __str__(self):
         return self.status
+
+    __repr__ = __str__
+
+
+class RedirectError(HttpError):
+    def __init__(self, code, location):
+        '''
+        Init an HttpError with response code.
+        '''
+        super(RedirectError, self).__init__(code)
+        self.location = location
+
+    def __str__(self):
+        return '%s, %s' % (self.status, self.location)
+
+    __repr__ = __str__
+
+
+def badrequest():
+    '''
+    Send a bad request response
+    >>> raise badrequest()
+    Traceback (most recent call last):
+      ...
+    HttpError: 400 Bad Request
+    '''
+    return HttpError(400)
+
+
+def unauthorized():
+    return HttpError(401)
+
+
+def forbidden():
+    return HttpError(403)
+
+
+def notfound():
+    return HttpError(404)
+
+
+def conflict():
+    return HttpError(409)
+
+
+def internalerror():
+    return HttpError(500)
+
+
+def redirect(location):
+    return RedirectError(301, location)
+
+
+def found(location):
+    return RedirectError(302, location)
+
+
+def seeother(location):
+    return RedirectError(303, location)
+
+
+def _to_str(s):
+    '''
+    Convert to str.
+    >>> _to_str('s123') == 's123'
+    True
+    >>> _to_str(u'\u4e2d\u6587') == '\xe4\xb8\xad\xe6\x96\x87'
+    True
+    >>> _to_str(-123) == '-123'
+    True
+    '''
+    if isinstance(s, str):
+        return s
+    if isinstance(s, unicode):
+        return s.encode('utf-8')
+    return str(s)
+
+
+def _to_unicode(s, encoding='utf-8'):
+    '''
+    Convert to unicode.
+    >>> _to_unicode('\xe4\xb8\xad\xe6\x96\x87') == u'\u4e2d\u6587'
+    True
+    '''
+    return s.decode(encoding)
+
+
+def _quote(s, encoding='utf-8'):
+    '''
+    Url quote as str.
+    >>> _quote('http://example/test?a=1+')
+    'http%3A//example/test%3Fa%3D1%2B'
+    >>> _quote(u'hello world!')
+    'hello%20world%21'
+    '''
+    if isinstance(s, unicode):
+        s = s.encode(encoding)
+    return urllib.quote(s)
+
+
+def _unquote(s, encoding='utf-8'):
+    '''
+    Url unquote as unicode.
+    >>> _unquote('http%3A//example/test%3Fa%3D1+')
+    u'http://example/test?a=1+'
+    '''
+    return urllib.unquote(s).decode(encoding)
+
+
+def get(path):
+    '''
+    A @get decorator.
+    @get('/:id')
+    def index(id):
+        pass
+    >>> @get('/test/:id')
+    ... def test():
+    ...     return 'ok'
+    ...
+    >>> test.__web_route__
+    '/test/:id'
+    >>> test.__web_method__
+    'GET'
+    >>> test()
+    'ok'
+    '''
+    def _decorate(func):
+        func.__web_route__ = path
+        func.__web_method__ = 'GET'
+        return func
+    return _decorate
+
+
+def post(path):
+    '''
+    A @post decorator.
+    >>> @post('/post/:id')
+    ... def testpost():
+    ...     return '200'
+    ...
+    >>> testpost.__web_route__
+    '/post/:id'
+    >>> testpost.__web_method__
+    'POST'
+    >>> testpost()
+    '200'
+    '''
+    def _decorate(func):
+        func.__web_route__ = path
+        func.__web_method__ = 'POST'
+        return func
+    return _decorate
+
+_re_route = re.compile(r'(\:[a-zA-Z_]\w*)')
+
+
+def _build_regex(path):
+    r'''
+    Convert route path to regex.
+    >>> _build_regex('/path/to/:file')
+    '^\\/path\\/to\\/(?P<file>[^\\/]+)$'
+    >>> _build_regex('/:user/:comments/list')
+    '^\\/(?P<user>[^\\/]+)\\/(?P<comments>[^\\/]+)\\/list$'
+    >>> _build_regex(':id-:pid/:w')
+    '^(?P<id>[^\\/]+)\\-(?P<pid>[^\\/]+)\\/(?P<w>[^\\/]+)$'
+    '''
+    re_list = ['^']
+    var_list = []
+    is_var = False
+    for v in _re_route.split(path):
+        if is_var:
+            var_name = v[1:]
+            var_list.append(var_name)
+            re_list.append(r'(?P<%s>[^\/]+)' % var_name)
+        else:
+            s = ''
+            for ch in v:
+                if ch >= '0' and ch <= '9':
+                    s = s + ch
+                elif ch >= 'A' and ch <= 'Z':
+                    s = s + ch
+                elif ch >= 'a' and ch <= 'z':
+                    s = s + ch
+                else:
+                    s = s + '\\' + ch
+            re_list.append(s)
+        is_var = not is_var
+    re_list.append('$')
+    return ''.join(re_list)
+
+
+class Route(object):
+    '''
+    A Route object is a callable object
+    '''
+    def __init__(self, func):
+        self.path = func.__web_route__
+        self.method = func.__web_method__
+        self.is_static = _re_route.search(self.path) is None
+        if not self.is_static:
+            self.route = re.compile(_build_regex(self.path))
+        self.func = func
+
+    def match(self, url):
+        m = self.route.match(url)
+        if m:
+            return m.groups()
+        return None
+
+    def __call__(self, *args):
+        return self.func(*args)
+
+    def __str__(self):
+        if self.is_static:
+            return 'Route(static,%s,path=%s)' % (self.method, self.path)
+        return 'Route(dynamic, %s, path=%s)' % (self.method, self.path)
 
     __repr__ = __str__
 
