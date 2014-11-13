@@ -463,80 +463,142 @@ class Request(object):
             inputs[key] = _convert(fs[key])
         return inputs
 
-        def _get_raw_input(self):
-            '''
-            Get raw input as dict containing values as unicode, list or MultipartFile
-            '''
-            if not hasattr(self, '_raw_input'):
-                self._raw_input = self._parse_input()
-            return self._raw_input
+    def _get_raw_input(self):
+        '''
+        Get raw input as dict containing values as unicode, list or MultipartFile
+        '''
+        if not hasattr(self, '_raw_input'):
+            self._raw_input = self._parse_input()
+        return self._raw_input
 
-        def __getitem__(self, key):
-            r = self._get_raw_input()[key]
-            if isinstance(r, list):
-                return r[0]
-            return r
+    def __getitem__(self, key):
+        r = self._get_raw_input()[key]
+        if isinstance(r, list):
+            return r[0]
+        return r
 
-        def get(self, key, default=None):
-            r = self._get_raw_input().get(key, default)
-            if isinstance(r, list):
-                return r[0]
-            return r
+    def get(self, key, default=None):
+        r = self._get_raw_input().get(key, default)
+        if isinstance(r, list):
+            return r[0]
+        return r
 
-        def gets(self, key):
-            r = self._get_raw_input()[key]
-            if isinstance(r, list):
-                return r[:]
-            return [r]
+    def gets(self, key):
+        r = self._get_raw_input()[key]
+        if isinstance(r, list):
+            return r[:]
+        return [r]
 
-        def input(self, **kwargs):
-            copy = Dict(**kwargs)
-            raw = self._get_raw_input()
-            for k, v in raw.iteritems():
-                copy[k] = v[0] if isinstance(v, list) else v
-            return copy
+    def input(self, **kwargs):
+        copy = Dict(**kwargs)
+        raw = self._get_raw_input()
+        for k, v in raw.iteritems():
+            copy[k] = v[0] if isinstance(v, list) else v
+        return copy
 
-        def get_body(self):
-            fp = self._environ['wsgi.input']
-            return fp.read()
+    def get_body(self):
+        fp = self._environ['wsgi.input']
+        return fp.read()
 
-        @property
-        def remote_addr(self):
-            return self._environ.get('REMOTE_ADDR', '0.0.0.0')
+    @property
+    def remote_addr(self):
+        return self._environ.get('REMOTE_ADDR', '0.0.0.0')
 
-        @property
-        def document_root(self):
-            return self._environ.get('DOCUMENT_ROOT', '')
+    @property
+    def document_root(self):
+        return self._environ.get('DOCUMENT_ROOT', '')
 
-        @property
-        def query_string(self):
-            return self._environ.get('QUERY_STRING', '')
+    @property
+    def query_string(self):
+        return self._environ.get('QUERY_STRING', '')
 
-        @property
-        def environ(self):
-            return self._environ
+    @property
+    def environ(self):
+        return self._environ
 
-        @property
-        def request_method(self):
-            return self._environ['REQUEST_METHOD']
+    @property
+    def request_method(self):
+        return self._environ['REQUEST_METHOD']
 
-        @property
-        def path_info(self):
-            return urllib.unquote(self._environ.get('PATH_INFO', ''))
+    @property
+    def path_info(self):
+        return urllib.unquote(self._environ.get('PATH_INFO', ''))
 
-        @property
-        def host(self):
-            return self._environ.get('HTTP_HOST', '')
+    @property
+    def host(self):
+        return self._environ.get('HTTP_HOST', '')
+
+    def _get_headers(self):
+        if not hasattr(self, '_headers'):
+            hdrs = {}
+            for k, v in self._environ.iteritems():
+                if k.startswith('HTTP_'):
+                    # convert 'HTTP_ACCEPT_ENCODING' to 'ACCEPT-ENCODING'
+                    hdrs[k[5:].replace('_', '-').upper()] = v.decode('utf-8')
+            self._headers = hdrs
+        return self._headers
+
+    @property
+    def headers(self):
+        return dict(**self._get_headers())
+
+    def header(self, header, default=None):
+        return self._get_headers().get(header.upper(), default)
+
+    def _get_cookies(self):
+        if not hasattr(self, '_cookies'):
+            cookies = {}
+            cookie_str = self._environ.get('HTTP_COOKIE')
+            if cookie_str:
+                for c in cookie_str.split(';'):
+                    pos = c.find('=')
+                    if pos > 0:
+                        cookies[c[:pos].strip()] = _unquote(c[pos + 1:])
+            self._cookies = cookies
+        return self._cookies
+
+    @property
+    def cookies(self):
+        return Dict(**self._get_cookies())
+
+    def cookie(self, name, default=None):
+        return self._get_cookies().get(name, default)
+
+UTC_0 = UTC('+00:00')
 
 
+class Response(object):
+    def __init__(self):
+        self.status = '200 OK'
+        self._headers =  {'CONTENT-TYPE': 'text/html; charset=utf-8'}
 
+    @property
+    def headers(self):
+        L = [(_RESPONSE_HEADER_DICT.get(k, k), v) for k, v in self._headers.iteritems()]
+        if hasattr(self, '_cookies'):
+            for v in self._cookies.itervalues():
+                L.append(('Set-Cookie', v))
+        L.append(_HEADER_X_POWERED_BY)
+        return L
 
+    def header(self, name):
+        key = name.upper()
+        if not key in _RESPONSE_HEADER_DICT:
+            key = name
+        return self._headers.get(key)
 
+    def unset_header(self, name):
+        key = name.upper()
+        if not key in _RESPONSE_HEADER_DICT:
+            key = name
+        if key in self._headers:
+            del self._headers[key]
 
-
-
-
-
+    def set_header(self, name, value):
+        key = name.upper()
+        if not key in _RESPONSE_HEADER_DICT:
+            key = name
+        self._headers[key] = _to_str(value)
 
 if __name__ == '__main__':
     '''
@@ -548,6 +610,10 @@ if __name__ == '__main__':
     print gmt_time
     gmt8_time = gmt_time.astimezone(tzinfo8)
     print gmt8_time
-    '''
     http = HttpError(404)
     print http
+    '''
+    r = Request({'HTTP_USER_AGENT': 'Mozilla/5.0', 'HTTP_ACCEPT': 'text/html', 'HTTP_COOKIE':'A=123; url=http%3A%2F%2Fwww.example.com%2F'})
+    print r.header('User-Agent')
+    print r.headers
+    print r.cookies
