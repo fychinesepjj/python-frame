@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-import db
-from db import next_id
+import mysql
+from mysql import next_id
 from orm import Model, StringField, IntegerField
 
 
@@ -11,6 +11,6 @@ class Test(Model):
     age = IntegerField(ddl='int')
 
 if __name__ == '__main__':
-    db.create_engine('mysql', 'root', '123456', 'frame-test')
+    mysql.create_engine('mysql', 'root', '123456', 'frame-test')
     t = Test.find_by('where age > ?', 0)
     print t

@@ -4,7 +4,7 @@ import uuid
 import functools
 import threading
 import logging
-from utils import Dict
+from core.utils import Dict
 
 
 class DBError(Exception):
