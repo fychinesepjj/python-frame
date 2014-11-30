@@ -5,9 +5,3 @@ from core.application import get, post, ctx, view, interceptor, seeother, notfou
 from models import User, Blog, Comment
 
 
-@view('blogs.html')
-@get('/')
-def index():
-    blogs = Blog.find_all()
-    user = User.find_first('where email=?', 'admin@admin.com')
-    return dict(blog=blogs, user=user)
