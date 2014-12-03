@@ -1,15 +1,25 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os, re, time, base64, hashlib, logging
-from core.apis import api, APIError, APIValueError, APIPermissionError, APIResourceNotFoundError
+from core.apis import api, Page, APIError, APIValueError, APIPermissionError, APIResourceNotFoundError
 from web.models import User, Blog, Comment
 from settings import configs
 from core.application import get, post, ctx, view, interceptor, seeother, notfound
+import markdown2
 
 _COOKIE_NAME = 'session'
 _COOKIE_KEY = configs.session.secret
 _RE_EMAIL = re.compile(r'^[a-z0-9\.\-\_]+\@[a-z0-9\-\_]+(\.[a-z0-9\-\_]+){1,4}$')
 _RE_MD5 = re.compile(r'^[0-9a-f]{32}$')
+
+
+def _get_page_index():
+    page_index = 1
+    try:
+        page_index = int(ctx.request.get('page', '1'))
+    except ValueError:
+        pass
+    return page_index
 
 
 def make_signed_cookie(id, password, max_age):
@@ -141,3 +151,53 @@ def index():
     blogs = Blog.find_all()
     user = User.find_first('where email=?', 'admin@admin.com')
     return dict(blog=blogs, user=user)
+
+
+@api
+@get('/api/blogs')
+def api_get_blogs():
+    format = ctx.request.get('format', '')
+    blogs, page = _get_blogs_by_page()
+    if format == 'html':
+        for blog in blogs:
+            blog.content = markdown2.markdown(blog.content)
+    return dict(blogs=blogs, page=page)
+
+
+@view('manage_blog_list.html')
+@get('/manage/blogs')
+def manage_blogs():
+    return dict(page_index=_get_page_index(), user=ctx.request.user)
+
+
+@view('manage_blog_edit.html')
+@get('/manage/blogs/create')
+def manage_blogs_create():
+    return dict(id=None, action='/api/blogs', redirect='/manage/blogs', user=ctx.request.user)
+
+
+@api
+@post('/api/blogs')
+def api_create_blog():
+    check_admin()
+    i = ctx.request.input(name='', summary='', content='')
+    name = i.name.strip()
+    summary = i.summary.strip()
+    content = i.content.strip()
+    if not name:
+        raise APIValueError('name', 'name can not be empty.')
+    if not summary:
+        raise APIValueError('summary', 'summary can not be empty.')
+    if not content:
+        raise APIValueError('content', 'content can not be empty.')
+    user = ctx.request.user
+    blog = Blog(user_id=user.id, user_name=user.name, name=name, summary=summary, content=content)
+    blog.insert()
+    return blog
+
+
+def _get_blogs_by_page():
+    total = Blog.count_all()
+    page = Page(total, _get_page_index())
+    blogs = Blog.find_by('order by created_at desc limit ?,?', page.offset, page.limit)
+    return blogs, page
